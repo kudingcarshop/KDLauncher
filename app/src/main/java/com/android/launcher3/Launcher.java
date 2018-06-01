@@ -47,6 +47,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -56,6 +57,7 @@ import android.os.StrictMode;
 import android.os.SystemClock;
 import android.os.Trace;
 import android.os.UserHandle;
+import android.provider.Settings;
 import android.support.annotation.Nullable;
 import android.text.Selection;
 import android.text.SpannableStringBuilder;
@@ -81,6 +83,8 @@ import android.view.animation.OvershootInterpolator;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Toast;
 
+import com.alibaba.sdk.android.man.MANService;
+import com.alibaba.sdk.android.man.MANServiceProvider;
 import com.android.launcher3.DropTarget.DragObject;
 import com.android.launcher3.LauncherSettings.Favorites;
 import com.android.launcher3.Workspace.ItemOperator;
@@ -146,11 +150,15 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
 import static com.android.launcher3.util.RunnableWithId.RUNNABLE_ID_BIND_APPS;
 import static com.android.launcher3.util.RunnableWithId.RUNNABLE_ID_BIND_WIDGETS;
+
+import com.kuding.kdlauncher.ManServiceManager;
+import com.kuding.kdlauncher.Permission;
 import com.kuding.kdlauncher.R;
 /**
  * Default launcher application.
@@ -487,6 +495,8 @@ public class Launcher extends BaseActivity
         if (mLauncherCallbacks != null) {
             mLauncherCallbacks.onCreate(savedInstanceState);
         }
+
+        checkPermission();
     }
 
     @Override
@@ -829,6 +839,8 @@ public class Launcher extends BaseActivity
                 Toast.makeText(this, getString(R.string.msg_no_phone_permission,
                         getString(R.string.derived_app_name)), Toast.LENGTH_SHORT).show();
             }
+        } else if (requestCode == REQUEST_PERMISSION_ALL) {
+            checkSettingsPermission();
         }
         if (mLauncherCallbacks != null) {
             mLauncherCallbacks.onRequestPermissionsResult(requestCode, permissions,
@@ -943,6 +955,10 @@ public class Launcher extends BaseActivity
 
     @Override
     protected void onResume() {
+        // begin add by junye.li
+        ManServiceManager.pageAppear(this);
+        // end add by junye.li
+
         long startTime = 0;
         if (DEBUG_RESUME_TIME) {
             startTime = System.currentTimeMillis();
@@ -1058,6 +1074,10 @@ public class Launcher extends BaseActivity
 
     @Override
     protected void onPause() {
+        // begin add by junye.li
+        ManServiceManager.pageDisAppear(this);
+        // end add by junye.li
+
         // Ensure that items added to Launcher are queued until Launcher returns
         InstallShortcutReceiver.enableInstallQueue(InstallShortcutReceiver.FLAG_ACTIVITY_PAUSED);
 
@@ -1875,6 +1895,12 @@ public class Launcher extends BaseActivity
 
     @Override
     public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
+        // begin add by junye.li
+        Map<String, String> map = new HashMap<>();
+        map.put(ManServiceManager.ACTION, "startActivityForResult");
+        map.put(ManServiceManager.INTENT, intent.toString());
+        ManServiceManager.updatePageProperties(map);
+        // end add by junye.li
         super.startActivityForResult(intent, requestCode, options);
     }
 
@@ -1950,6 +1976,12 @@ public class Launcher extends BaseActivity
         }
         intent.setSourceBounds(sourceBounds);
         try {
+            // begin add by junye.li
+            Map<String, String> map = new HashMap<>();
+            map.put(ManServiceManager.ACTION, "startGlobalSearch");
+            map.put(ManServiceManager.INTENT, intent.toString());
+            ManServiceManager.updatePageProperties(map);
+            // end add by junye.li
             startActivity(intent);
         } catch (ActivityNotFoundException ex) {
             Log.e(TAG, "Global search activity not found: " + globalSearchActivity);
@@ -2691,8 +2723,20 @@ public class Launcher extends BaseActivity
                 startShortcutIntentSafely(intent, optsBundle, item);
             } else if (user == null || user.equals(Process.myUserHandle())) {
                 // Could be launching some bookkeeping activity
+                // begin add by junye.li
+                Map<String, String> map = new HashMap<>();
+                map.put(ManServiceManager.ACTION, "startActivitySafely");
+                map.put(ManServiceManager.INTENT, intent.toString());
+                ManServiceManager.updatePageProperties(map);
+                // end add by junye.li
                 startActivity(intent, optsBundle);
             } else {
+                // begin add by junye.li
+                Map<String, String> map = new HashMap<>();
+                map.put(ManServiceManager.ACTION, "startActivityForProfile");
+                map.put(ManServiceManager.INTENT, intent.toString());
+                ManServiceManager.updatePageProperties(map);
+                // end add by junye.li
                 LauncherAppsCompat.getInstance(this).startActivityForProfile(
                         intent.getComponent(), user, intent.getSourceBounds(), optsBundle);
             }
@@ -4035,6 +4079,27 @@ public class Launcher extends BaseActivity
                 // Recreate the activity so that it initializes the rotation preference again.
                 recreate();
             }
+        }
+    }
+
+    private static final int REQUEST_PERMISSION_SETTINGS = 15;
+    private static final int REQUEST_PERMISSION_ALL = 16;
+    @TargetApi(23)
+    private void checkPermission() {
+        String[] deniedPermissions = Permission.getDeniedPermission(this, Permission.STORAGE, Permission.PHONE);
+        if (deniedPermissions != null && deniedPermissions.length != 0) {
+            requestPermissions(deniedPermissions, REQUEST_PERMISSION_ALL);
+        } else {
+            checkSettingsPermission();
+        }
+    }
+
+    @TargetApi(23)
+    private void checkSettingsPermission() {
+        if (!Settings.System.canWrite(this)) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, REQUEST_PERMISSION_SETTINGS );
         }
     }
 }
